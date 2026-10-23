@@ -4,10 +4,10 @@ Read-only cost report for a Bunny account. Fetches data through the installed `b
 
 ```sh
 cd ~/versioned/bunny-stats
-mix stats
+make start   # same as: mix stats
 ```
 
-The default output is `tmp/bunny-stats.html`. Each live run saves a sanitized JSON snapshot in `tmp/snapshots/`. Both are ignored by Git. Authentication stays with the Bunny CLI; the project does not read or store API keys.
+The default output is `tmp/bunny-stats.html` plus one detail page per app in `tmp/bunny-stats/`. Each live run saves a sanitized JSON snapshot in `tmp/snapshots/`. Both are ignored by Git. Authentication stays with the Bunny CLI; the project does not read or store API keys.
 
 ```sh
 mix stats --profile default
@@ -38,6 +38,6 @@ All generated HTML, JSON snapshots, CSV/TSV exports, logs and common credential 
 
 ## Layout
 
-Account totals, app ranking, expandable cost-driver rankings, volume estimates and reconciliation. Each app shows traffic, RAM, CPU and provisioned-volume charts for the last 30 days, without a daily table. Hover, tap or keyboard focus shows the date and measurement; arrow keys navigate days, including zero and missing values. Monthly model rankings are separate from actual app billing totals. Black background, inline CSS and JavaScript, no external fonts, tracking, network requests or assets. All account strings are HTML-escaped. The report remains readable without JavaScript.
+The overview holds account totals, the app ranking, volume estimates and reconciliation. Each app links to its own page with cost drivers, its volumes, and traffic, RAM, CPU and provisioned-volume charts for the last 30 days, without a daily table. App pages link back to the overview and to the previous and next app in ranking order. Hover, tap or keyboard focus shows the date and measurement; arrow keys navigate days, including zero and missing values. Monthly model rankings are separate from actual app billing totals. Light card layout with system fonts, inline CSS and JavaScript, no external fonts, tracking, network requests or assets. Colors follow the entity across the page: traffic blue, RAM violet, CPU orange, volumes green. Product and component shares appear as a segment bar and a donut; the app ranking carries a 30-day traffic sparkline per app. All account strings are HTML-escaped. The report remains readable without JavaScript.
 
 Sources: [Billing](https://bunny.net/docs/api-reference/core/billing/get-billing-details), [statistics](https://bunny.net/docs/api-reference/magic-containers/applications/get-application-statistics), [pricing](https://bunny.net/docs/magic-containers/pricing).

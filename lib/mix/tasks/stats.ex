@@ -38,7 +38,10 @@ defmodule Mix.Tasks.Stats do
                 else: nil
 
             report = BunnyStats.Analysis.build(snapshot, reference)
-            {BunnyStats.Report.render(report), if(report.errors == [], do: :ok, else: :partial)}
+            pages = write_app_pages(report, output)
+
+            {BunnyStats.Report.render(report, pages),
+             if(report.errors == [], do: :ok, else: :partial)}
 
           {:error, message} ->
             {BunnyStats.Report.error(message), :error}
@@ -60,6 +63,31 @@ defmodule Mix.Tasks.Stats do
         Mix.shell().error(
           "Bericht enthält #{if status == :partial, do: "unvollständige Daten", else: "einen Abruffehler"}."
         )
+  end
+
+  # One HTML file per app in a directory named after the report file, e.g. tmp/bunny-stats/.
+  defp write_app_pages(report, output) do
+    dir = Path.rootname(output)
+    File.mkdir_p!(dir)
+    # Drop pages of apps that no longer exist so stale links cannot survive a run.
+    dir |> Path.join("*.html") |> Path.wildcard() |> Enum.each(&File.rm!/1)
+    apps = report.apps
+
+    apps
+    |> Enum.with_index()
+    |> Enum.each(fn {app, i} ->
+      nav = %{
+        overview: "../" <> Path.basename(output),
+        previous: if(i > 0, do: Enum.at(apps, i - 1)),
+        next: Enum.at(apps, i + 1)
+      }
+
+      path = Path.join(dir, BunnyStats.Report.page_file(app))
+      File.write!(path, BunnyStats.Report.render_app(report, app, nav))
+      File.chmod!(path, 0o600)
+    end)
+
+    Path.basename(dir)
   end
 
   defp save_snapshot(snapshot) do

@@ -1,0 +1,64 @@
+<% alias BunnyStats.Report, as: H %>
+<% previous = nav.previous %>
+<% next = nav.next %>
+<% drivers = app["costDrivers"] %>
+<% maximum = drivers |> Enum.map(&(&1.cost || 0)) |> Enum.max(fn -> 0 end) %>
+<% volumes = app["volumeRows"] %>
+<% current = Enum.reject(volumes, & &1.historical) %>
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title><%= H.escape(app["name"]) %> · Bunny Stats <%= H.escape(r.month) %></title>
+<style><%= H.css() %></style>
+</head>
+<body><main>
+<header class="top"><a class="logo" href="<%= H.escape(nav.overview) %>" style="text-decoration:none">B</a><h1>Bunny Stats</h1><span class="month"><%= H.escape(r.month) %></span><span class="meta">Stand <%= H.escape(r.snapshot["fetchedAt"]) %> · USD · Tage in UTC</span>
+<div class="pager"><a href="<%= H.escape(nav.overview) %>">← Übersicht</a><%= if previous do %><a href="<%= H.page_file(previous) %>" title="<%= H.escape(previous["name"]) %>">↑ <%= H.escape(previous["name"]) %></a><% end %><%= if next do %><a href="<%= H.page_file(next) %>" title="<%= H.escape(next["name"]) %>">↓ <%= H.escape(next["name"]) %></a><% end %></div></header>
+
+<div class="card app-hero">
+  <div><h3>App</h3><h2><%= H.escape(app["name"]) %> <%= H.status_chip(app["status"]) %></h2>
+  <div class="lead"><%= if maximum > 0 do %><h4><%= H.escape(hd(drivers).name) %> führt im Modell</h4><p class="note">Größter schätzbarer Posten. CPU-Kosten, Datenlücken und tatsächliche Abrechnungsregeln können die Reihenfolge ändern.</p><% else %><h4>Keine belastbare Kostenrangfolge</h4><p class="note">Für diese App liegen keine auswertbaren Modellwerte vor.</p><% end %></div></div>
+  <div class="big num"><%= H.money(app["monthlyCost"], 4) %><small>Monatskosten laut API · <%= H.share(app["monthlyCost"], r.app_sum) %> der vorhandenen Apps</small></div>
+</div>
+
+<div class="grid2">
+<div class="card"><div class="card-head"><h2>Was kostet hier?</h2><span class="faint">laufender Monat</span></div>
+<%= for driver <- drivers do %>
+<div class="driver" style="--c:<%= H.color(driver.name) %>"><div><%= H.escape(driver.name) %><small><%= H.escape(driver.kind) %><%= if driver.cost != nil and driver.missing_days > 0, do: " · Datenlücken" %></small></div><div class="driver-bar"><i style="width:<%= H.driver_width(driver.cost, maximum) %>%"></i></div><b class="num"><%= if driver.cost == nil, do: "unbekannt", else: "≈ " <> H.money(driver.cost, 4) %></b></div>
+<% end %>
+<p class="note">Geschätzte Kostentreiber, keine exakte Aufteilung der Rechnung. CPU ist nicht beziffert.</p>
+<details class="method"><summary>Annahmen der Kostenschätzung</summary><%= for driver <- drivers do %><p><strong><%= H.escape(driver.name) %>:</strong> <%= H.escape(driver.detail) %><%= if driver.cost != nil and driver.missing_days > 0, do: " Fehlende Tage: #{driver.missing_days}. Berechnung nur aus vorhandenen Messwerten." %></p><% end %><p>GB = 1.000.000.000 Bytes. Modelle werden nicht auf den Rechnungsbetrag skaliert.</p></details>
+</div>
+
+<div class="card"><div class="card-head"><h2>Volumes</h2><span class="faint">0,10 $ je GB und Monat</span></div>
+<%= if current != [] do %><div class="vol-mini"><span class="big num"><%= H.number(BunnyStats.Analysis.sum_present(Enum.map(current, & &1.size)), 2) %> GB</span> <span class="muted">bereitgestellt · <%= H.number(BunnyStats.Analysis.sum_present(Enum.map(current, & &1.used)), 2) %> GB belegt</span><p class="note"><%= H.money(BunnyStats.Analysis.sum_present(Enum.map(current, & &1.run_rate))) %> je vollem Monat bei unveränderter Kapazität</p></div><% end %>
+<%= if volumes == [] do %><p class="note">Keine Volumes für diese App.</p><% else %>
+<div class="scroll tight"><table><thead><tr><th>Volume</th><th>Zustand</th><th>GB bereit</th><th>GB belegt</th><th>Bisher geschätzt</th><th>Voller Monat²</th></tr></thead><tbody>
+<%= for v <- volumes do %><tr><td><%= H.escape(v.name) %><br><span class="muted"><%= H.escape(v.regions) %></span><br><span class="mono faint"><%= H.escape(v.id) %></span></td><td><%= cond do v.historical -> ~s(<span class="chip">historisch</span>); v.detached -> ~s(<span class="chip warn">abgehängt</span>); true -> ~s(<span class="chip on"><i></i>vorhanden</span>) end %></td><td><%= H.number(v.size, 2) %></td><td><%= H.number(v.used, 4) %></td><td><%= H.money(v.cost, 4) %></td><td><%= H.money(v.run_rate) %></td></tr><% end %>
+</tbody></table></div><p class="note">² Hochrechnung bei unveränderter aktueller Kapazität, kein bereits abgerechneter Betrag. Historische Volumes haben keine aktuelle Hochrechnung.</p><% end %>
+</div></div>
+
+<section><div class="sec-head"><h2>Letzte 30 Tage</h2><span class="note">UTC-Tage inklusive heute. Datum und Messwert per Mouseover, Antippen oder Pfeiltasten. Kostenmodelle oben nutzen nur den laufenden Monat.</span></div>
+<div class="detail-charts"><%= for {metric, label} <- H.metrics() do %><%= H.chart(app["days"], metric, label, "g-#{metric}") %><% end %></div></section>
+
+<footer><p>Lokaler Bericht. Keine externen Ressourcen, keine API-Schlüssel, keine Änderungen am Bunny-Account.</p><a href="<%= H.escape(nav.overview) %>">Zur Übersicht</a></footer>
+</main><script>
+for(const chart of document.querySelectorAll('.metric-chart')){
+  const points=[...chart.querySelectorAll('.point')];
+  const output=chart.querySelector('.chart-readout');
+  function show(point){output.textContent=point.dataset.value;points.forEach(item=>item.tabIndex=item===point?0:-1);}
+  for(const point of points){
+    point.addEventListener('pointerenter',()=>show(point));
+    point.addEventListener('focus',()=>show(point));
+    point.addEventListener('click',()=>{show(point);point.focus();});
+    point.addEventListener('keydown',event=>{
+      const index=points.indexOf(point);
+      const target={ArrowLeft:Math.max(0,index-1),ArrowRight:Math.min(points.length-1,index+1),Home:0,End:points.length-1}[event.key];
+      if(target!==undefined){event.preventDefault();points[target].focus();}
+    });
+  }
+}
+</script></body></html>

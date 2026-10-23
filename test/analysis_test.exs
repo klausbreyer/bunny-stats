@@ -104,10 +104,11 @@ defmodule BunnyStats.AnalysisTest do
     assert List.last(app["days"]).partial
     assert Enum.at(app["days"], 1).traffic == nil
     assert_in_delta app["trafficGb"], 3.0, 0.000001
-    html = Report.render(r)
+    html = Report.render_app(r, app, %{overview: "../o.html", previous: nil, next: nil})
     assert length(Regex.scan(~r/class="point"/, html)) == 120
     assert html =~ "2026-09-25 · keine Messwerte"
     refute html =~ "<th>Tag (UTC)</th>"
+    assert Report.render(r, "pages") =~ ~s(href="pages/app.html")
   end
 
   test "cost models use this month only, clip today and never infer CPU costs" do
@@ -186,10 +187,17 @@ defmodule BunnyStats.AnalysisTest do
         }
       ])
 
-    html = s |> Analysis.build() |> Report.render()
-    refute html =~ "<script>alert(1)</script>"
-    assert html =~ "&lt;script&gt;alert(1)&lt;/script&gt;"
-    assert html =~ "bad&quot;id"
+    r = Analysis.build(s)
+    [app] = r.apps
+    assert Report.page_file(app) == "bad_id.html"
+
+    for html <- [
+          Report.render(r, "pages"),
+          Report.render_app(r, app, %{overview: "../o.html", previous: nil, next: nil})
+        ] do
+      refute html =~ "<script>alert(1)</script>"
+      assert html =~ "&lt;script&gt;alert(1)&lt;/script&gt;"
+    end
   end
 
   test "screenshot reference comparison respects rounded precision and month" do

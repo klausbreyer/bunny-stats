@@ -215,6 +215,7 @@ defmodule BunnyStats.Analysis do
       %{
         id: id,
         app: app["name"],
+        app_id: app["id"],
         name: if(v, do: v["name"], else: "Historisches Volume"),
         size: gb,
         used: if(v, do: v["totalUsage"]),
