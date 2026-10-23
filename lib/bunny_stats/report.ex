@@ -43,24 +43,68 @@ defmodule BunnyStats.Report do
   def unit(%{units: n, unit: "Block-seconds"}), do: number(n, 0) <> " Block-Sekunden"
   def unit(%{units: n, unit: u}), do: number(n, 0) <> " " <> escape(u)
 
-  def traffic_chart(days) do
-    max_value = days |> Enum.map(&(&1.traffic || 0)) |> Enum.max(fn -> 0 end) |> max(1)
+  def chart(days, metric, label) do
+    max_value = days |> Enum.map(&(Map.get(&1, metric) || 0)) |> Enum.max(fn -> 0 end)
+    scale = if max_value > 0, do: max_value, else: 1
 
     bars =
       Enum.with_index(days)
       |> Enum.map_join(fn {day, i} ->
-        height = if day.traffic, do: max(day.traffic / max_value * 76, 0), else: 0
-        color = if day.partial, do: "#436c83", else: "#92c9f4"
+        value = Map.get(day, metric)
+        height = if is_number(value), do: max(value / scale * 74, 2), else: 2
 
-        title =
-          "#{day.date}: #{gb(day.traffic)} GB" <>
-            if(day.partial, do: " (laufender Tag)", else: "")
+        color =
+          cond do
+            is_nil(value) -> "#444"
+            day.partial -> "#436c83"
+            true -> "#92c9f4"
+          end
 
-        "<rect x=\"#{i * 20 + 2}\" y=\"#{80 - height}\" width=\"14\" height=\"#{height}\" fill=\"#{color}\"><title>#{escape(title)}</title></rect>"
+        title = chart_value(day, metric)
+        tab = if i == length(days) - 1, do: 0, else: -1
+
+        """
+        <g class="point" tabindex="#{tab}" role="img" aria-label="#{escape(title)}" data-value="#{escape(title)}">
+          <title>#{escape(title)}</title>
+          <rect x="#{i * 20 + 3}" y="#{78 - height}" width="14" height="#{height}" fill="#{color}"/>
+          <rect class="hit" x="#{i * 20}" y="0" width="20" height="82" fill="transparent"/>
+        </g>
+        """
       end)
 
-    "<svg viewBox=\"0 0 #{max(length(days) * 20, 20)} 84\" role=\"img\" aria-label=\"Täglicher Traffic in GB. Werte in der folgenden Tabelle.\">#{bars}</svg>"
+    last = List.last(days)
+    first = List.first(days)
+    readout = if last, do: chart_value(last, metric), else: "Keine Messwerte"
+
+    """
+    <div class="metric-chart">
+      <h3>#{escape(label)}</h3>
+      <div class="chart-readout">#{escape(readout)}</div>
+      <svg viewBox="0 0 #{max(length(days) * 20, 20)} 84" preserveAspectRatio="none" role="group" aria-label="#{escape(label)}: letzte 30 Tage. Pfeiltasten wählen einen Tag.">#{bars}</svg>
+      <div class="chart-axis"><span>#{if first, do: escape(first.date)}</span><span>#{if last, do: escape(last.date)}</span></div>
+    </div>
+    """
   end
+
+  defp chart_value(day, metric) do
+    value = Map.get(day, metric)
+
+    formatted =
+      cond do
+        is_nil(value) -> "keine Messwerte"
+        metric == :cpu -> number(value, 5) <> " API-Wert"
+        true -> gb(value) <> " GB"
+      end
+
+    extra = if metric == :capacity, do: " bereit · " <> gb(day.used) <> " GB belegt", else: ""
+
+    day.date <>
+      " · " <> formatted <> extra <> if(day.partial, do: " · heute, unvollständig", else: "")
+  end
+
+  def driver_width(nil, _), do: 0
+  def driver_width(_, 0), do: 0
+  def driver_width(cost, maximum), do: cost / maximum * 100
 
   def error(message) do
     "<!doctype html><html lang=\"de\"><meta charset=\"utf-8\"><title>Bunny Stats: Abruf fehlgeschlagen</title><style>body{background:#000;color:#fff;font:16px system-ui;margin:4rem;max-width:60rem}h1{font-size:24px}</style><h1>Bunny Stats: Abruf fehlgeschlagen</h1><p>#{escape(message)}</p><p>Keine aktuellen Kosten verfügbar. Es wurden keine Bunny-Ressourcen verändert.</p></html>"

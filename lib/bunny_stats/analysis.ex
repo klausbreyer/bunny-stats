@@ -117,17 +117,74 @@ defmodule BunnyStats.Analysis do
     stats = app["statistics"] || %{}
     {:ok, until, _} = DateTime.from_iso8601(through)
     first = Date.from_iso8601!(month <> "-01")
-    last = min_date(Date.end_of_month(first), DateTime.to_date(until))
-
-    days =
-      if Date.compare(first, last) == :gt,
-        do: [],
-        else: Enum.map(Date.range(first, last), &day(stats, &1, until))
+    last = DateTime.to_date(until)
+    chart_first = Date.add(last, -29)
+    days = Enum.map(Date.range(chart_first, last), &day(stats, &1, until))
 
     app
     |> Map.put("days", days)
-    |> Map.put("trafficGb", sum_chart(stats["trafficChart"], first, last))
+    |> Map.put("trafficGb", sum_chart(stats["trafficChart"], chart_first, last))
     |> Map.put("volumeRows", volume_rows(app, stats, first, until))
+    |> Map.put("costDrivers", cost_drivers(stats, first, until))
+  end
+
+  @doc "Monthly cost models, never allocations of the invoice. CPU remains unknown."
+  def cost_drivers(stats, first, until) do
+    ram =
+      timed_model(stats["ramUsageChart"], first, until, fn bytes, seconds ->
+        bytes / 1.0e9 * seconds / 3600 * 0.005
+      end)
+
+    volumes = volume_estimate(stats["volumesCapacityChart"], first, until)
+    traffic = sum_chart(stats["trafficChart"], first, DateTime.to_date(until))
+
+    [
+      %{
+        name: "RAM",
+        cost: ram,
+        kind: "Modell",
+        detail:
+          "Tagesmittel in GB × erfasste Stunden × 0,005 $. Ohne Blockrundung und System-Overhead; verkürzte Laufzeiten können überschätzt werden."
+      },
+      %{
+        name: "Volumes",
+        cost: volumes,
+        kind: "Modell",
+        detail:
+          "Bereitgestellte Kapazität × Zeit × 0,10 $ pro GB und Monat. Belegter Speicher ist nicht die Abrechnungsgrundlage."
+      },
+      %{
+        name: "Traffic",
+        cost: if(traffic, do: traffic * 0.01),
+        kind: "Szenario",
+        detail:
+          "Statistik-Traffic × 0,01 $/GB. Nur falls vollständig abrechenbarer EU/NA-Egress. CDN-Traffic ist separat; andere Regionen sind teurer."
+      },
+      %{
+        name: "CPU",
+        cost: nil,
+        kind: "Unbekannt",
+        detail:
+          "Die CPU-Chartwerte haben keine eindeutig dokumentierte Abrechnungseinheit. Keine sichere Umrechnung in Dollar."
+      }
+    ]
+    |> Enum.map(fn d ->
+      chart =
+        case d.name do
+          "RAM" -> stats["ramUsageChart"]
+          "Volumes" -> stats["volumesCapacityChart"]
+          "Traffic" -> stats["trafficChart"]
+          _ -> nil
+        end
+
+      missing =
+        Enum.count(Date.range(first, DateTime.to_date(until)), fn date ->
+          not is_number((chart || %{})["#{date}T00:00:00Z"])
+        end)
+
+      Map.put(d, :missing_days, missing)
+    end)
+    |> Enum.sort_by(&{is_number(&1.cost), &1.cost || 0}, :desc)
   end
 
   defp day(stats, date, until) do
@@ -175,6 +232,14 @@ defmodule BunnyStats.Analysis do
   def volume_estimate(nil, _, _), do: nil
 
   def volume_estimate(chart, first, until) do
+    timed_model(chart, first, until, fn bytes, seconds ->
+      bytes / 1.0e9 * seconds / 86_400 / Date.days_in_month(first) * 0.10
+    end)
+  end
+
+  defp timed_model(nil, _, _, _), do: nil
+
+  defp timed_model(chart, first, until, calculate) do
     chart
     |> Enum.flat_map(fn {timestamp, bytes} ->
       with {:ok, start, _} <- DateTime.from_iso8601(timestamp),
@@ -182,7 +247,7 @@ defmodule BunnyStats.Analysis do
            true <- is_number(bytes),
            true <- DateTime.compare(start, until) == :lt do
         seconds = min(DateTime.diff(until, start), 86_400)
-        [bytes / 1.0e9 * seconds / 86_400 / Date.days_in_month(first) * 0.10]
+        [calculate.(bytes, seconds)]
       else
         _ -> []
       end
@@ -215,7 +280,6 @@ defmodule BunnyStats.Analysis do
   end
 
   defp sum_fields(map, keys), do: keys |> Enum.map(&map[&1]) |> sum_present()
-  defp min_date(a, b), do: if(Date.compare(a, b) == :gt, do: b, else: a)
   defp product_name("MonthlyChargesMagicContainers"), do: "Magic Containers"
   defp product_name("MonthlyCharges" <> name), do: name
 end

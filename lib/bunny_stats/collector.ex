@@ -1,5 +1,5 @@
 defmodule BunnyStats.Collector do
-  @moduledoc "Collects a current-month snapshot without application configuration or secrets."
+  @moduledoc "Collects monthly billing and 30-day telemetry without configuration or secrets."
   alias BunnyStats.API
 
   @charts ~w(cpuUsageChart ramUsageChart trafficChart instancesChart volumesUsageChart volumesCapacityChart volumesSplitUsageChart volumesSplitCapacityChart)
@@ -7,10 +7,12 @@ defmodule BunnyStats.Collector do
   def collect(profile \\ nil) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     first = Date.beginning_of_month(DateTime.to_date(now))
+    chart_first = Date.add(DateTime.to_date(now), -29)
+    fetch_first = if Date.compare(first, chart_first) == :lt, do: first, else: chart_first
 
     query =
       URI.encode_query(%{
-        fromDate: "#{first}T00:00:00Z",
+        fromDate: "#{fetch_first}T00:00:00Z",
         toDate: DateTime.to_iso8601(now),
         granularity: "Daily"
       })
@@ -27,6 +29,7 @@ defmodule BunnyStats.Collector do
        %{
          "fetchedAt" => DateTime.to_iso8601(DateTime.utc_now() |> DateTime.truncate(:second)),
          "statisticsThrough" => DateTime.to_iso8601(now),
+         "statisticsFrom" => Date.to_iso8601(fetch_first),
          "month" => String.slice(Date.to_iso8601(first), 0, 7),
          "billing" => sanitize_billing(billing),
          "apps" => results,

@@ -83,6 +83,63 @@ defmodule BunnyStats.AnalysisTest do
     assert Analysis.volume_estimate(nil, ~D[2026-10-01], ~U[2026-10-02 12:00:00Z]) == nil
   end
 
+  test "charts span 30 UTC days across a month boundary, preserving gaps" do
+    app = %{
+      "id" => "app",
+      "name" => "example",
+      "statistics" => %{
+        "trafficChart" => %{
+          "2026-09-23T00:00:00Z" => 100.0e9,
+          "2026-09-24T00:00:00Z" => 1.0e9,
+          "2026-10-23T00:00:00Z" => 2.0e9
+        }
+      },
+      "volumes" => %{"items" => []}
+    }
+
+    r = snapshot(%{}) |> Map.put("apps", [app]) |> Analysis.build()
+    [app] = r.apps
+    assert length(app["days"]) == 30
+    assert hd(app["days"]).date == "2026-09-24"
+    assert List.last(app["days"]).partial
+    assert Enum.at(app["days"], 1).traffic == nil
+    assert_in_delta app["trafficGb"], 3.0, 0.000001
+    html = Report.render(r)
+    assert length(Regex.scan(~r/class="point"/, html)) == 120
+    assert html =~ "2026-09-25 · keine Messwerte"
+    refute html =~ "<th>Tag (UTC)</th>"
+  end
+
+  test "cost models use this month only, clip today and never infer CPU costs" do
+    stats = %{
+      "ramUsageChart" => %{
+        "2026-09-30T00:00:00Z" => 1000.0e9,
+        "2026-10-01T00:00:00Z" => 1.0e9,
+        "2026-10-02T00:00:00Z" => 1.0e9
+      },
+      "trafficChart" => %{"2026-09-30T00:00:00Z" => 1000.0e9, "2026-10-01T00:00:00Z" => 2.0e9},
+      "volumesCapacityChart" => %{
+        "2026-10-01T00:00:00Z" => 10.0e9,
+        "2026-10-02T00:00:00Z" => 10.0e9
+      },
+      "cpuUsageChart" => %{"2026-10-01T00:00:00Z" => 123.0}
+    }
+
+    drivers = Analysis.cost_drivers(stats, ~D[2026-10-01], ~U[2026-10-02 12:00:00Z])
+    assert hd(drivers).name == "RAM"
+    by_name = Map.new(drivers, &{&1.name, &1})
+    assert_in_delta by_name["RAM"].cost, 0.18, 0.000001
+    assert_in_delta by_name["Volumes"].cost, 1.5 / 31, 0.000001
+    assert_in_delta by_name["Traffic"].cost, 0.02, 0.000001
+    assert by_name["Traffic"].missing_days == 1
+    assert by_name["CPU"].cost == nil
+
+    assert Enum.all?(
+             Analysis.cost_drivers(%{}, ~D[2026-10-01], ~U[2026-10-02 12:00:00Z]),
+             &is_nil(&1.cost)
+           )
+  end
+
   test "counts detached instances and separates run rate from incurred costs" do
     app = %{
       "id" => "a",
